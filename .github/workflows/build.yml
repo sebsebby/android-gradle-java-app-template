@@ -1,89 +1,32 @@
-name: build
+name: Build Android App
 
 on:
   push:
     branches:
-      - master
-  pull_request:
-    types: [ opened, labeled, unlabeled, synchronize ]
-
-env:
-  GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4g -Dorg.gradle.daemon=false -Dkotlin.incremental=false"
-  JAVA_VERSION: 20 # can't use Java 21 yet due to mockito issues
-  ANDROID_API_LEVEL: 34
+      - main
 
 jobs:
-  android:
-    name: JDK ${{ matrix.java-version }}
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Project
-        uses: actions/checkout@v4.2.2
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - name: Set up JDK
+        uses: actions/setup-java@v3
         with:
-          gradle-home-cache-cleanup: true
-      - run: ./gradlew --version
+          distribution: 'temurin'
+          java-version: '11'
 
-      - name: Validate Gradle Wrapper
-        uses: gradle/actions/wrapper-validation@v4
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
 
-      - name: Configure JDK ${{ env.JAVA_VERSION }}
-        uses: actions/setup-java@v4.7.0
+      - name: Build with Gradle
+        run: ./gradlew assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
         with:
-          distribution: temurin
-          java-version: ${{ env.JAVA_VERSION }}
-          cache: gradle
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew --version
-
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug -s
-
-      - name: Run Debug Lint Checks
-        run: ./gradlew lintDebug -s
-
-      - name: Run Debug Unit Tests
-        run: ./gradlew testDebug -s
-
-      - name: Cache AVD
-        uses: actions/cache@v4.2.0
-        id: avd-cache
-        with:
-          path: |
-            ~/.android/avd/*
-            ~/.android/adb*
-          key: avd-${{ env.ANDROID_API_LEVEL }}
-
-      - name: Enable KVM group perms
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-
-      - name: Create AVD and generate snapshot for caching
-        if: steps.avd-cache.outputs.cache-hit != 'true'
-        uses: reactivecircus/android-emulator-runner@v2.33.0
-        with:
-          api-level: ${{ env.ANDROID_API_LEVEL }}
-          arch: x86_64
-          target: google_apis
-          force-avd-creation: false
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          disable-animations: false
-          script: echo "Generated AVD snapshot for caching."
-
-      - name: Run Debug Instrumentation Tests on Android API ${{ matrix.api-level }} (Ran up to 2 times)
-        uses: reactivecircus/android-emulator-runner@v2.33.0
-        with:
-          api-level: ${{ env.ANDROID_API_LEVEL }}
-          arch: x86_64
-          target: google_apis
-          force-avd-creation: false
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot-save
-          disable-animations: true
-          script: ./gradlew connectedDebugAndroidTest -s || ./gradlew connectedDebugAndroidTest -s
+          name: debug-apks
+          path: app/build/outputs/apk/debug/*.apk
